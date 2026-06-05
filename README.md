@@ -1,4 +1,4 @@
-# fitbit-new
+# fitbit-air-poll
 
 Periodic ingest of Fitbit Air data via the **Google Health API** (`health.googleapis.com/v4`).
 
@@ -92,7 +92,7 @@ crontab -e
 Paste this line (also kept in `crontab.txt` for reference) and save:
 
 ```
-*/30 * * * * /Users/dave/dev/fitbit-new/refresh-token.sh >> /Users/dave/dev/fitbit-new/refresh-token.log 2>&1
+*/30 * * * * /Users/dave/dev/fitbit-air-poll/refresh-token.sh >> /Users/dave/dev/fitbit-air-poll/refresh-token.log 2>&1
 ```
 
 Verify it's installed:

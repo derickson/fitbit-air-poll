@@ -7,4 +7,4 @@
 # Verify with:   crontab -l
 # Remove with:   crontab -e   (delete the line)
 
-*/30 * * * * /Users/dave/dev/fitbit-new/refresh-token.sh >> /Users/dave/dev/fitbit-new/refresh-token.log 2>&1
+*/30 * * * * /Users/dave/dev/fitbit-air-poll/refresh-token.sh >> /Users/dave/dev/fitbit-air-poll/refresh-token.log 2>&1
