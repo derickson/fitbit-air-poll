@@ -5,8 +5,8 @@ cd "$(dirname "$0")"
 
 # Usage: ./fetch-health-data.sh [YYYY-MM-DD]
 #   No arg → yesterday (full civil day in your local timezone).
-DATE="${1:-$(date -v-1d +%Y-%m-%d)}"
-NEXT_DATE=$(date -j -v+1d -f %Y-%m-%d "$DATE" +%Y-%m-%d)
+DATE="${1:-$(python3 -c "import datetime; print((datetime.date.today() - datetime.timedelta(days=1)).isoformat())")}"
+NEXT_DATE=$(python3 -c "import datetime; print((datetime.date.fromisoformat('$DATE') + datetime.timedelta(days=1)).isoformat())")
 
 # Convert local-midnight boundaries to UTC RFC-3339 for the API filter.
 read -r START_UTC END_UTC <<<"$(python3 -c "

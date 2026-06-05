@@ -103,5 +103,4 @@ else:
 PY
 
 echo
-echo "Done. Quick sanity check:"
-echo "  curl -sS -H \"Authorization: Bearer \$ACCESS_TOKEN\" https://health.googleapis.com/v4/users/me/pairedDevices"
+exec ./validate-token.sh
