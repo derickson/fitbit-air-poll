@@ -19,34 +19,93 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 
 ## One-time setup
 
-1. **Google Cloud project**
-   - Enable the API: <https://console.cloud.google.com/apis/library/health.googleapis.com>
-   - Create an OAuth 2.0 **Web Server** client. Set redirect URI to `https://www.google.com`.
-   - In **OAuth consent screen → Audience**, click **Publish app** so refresh tokens don't expire after 7 days. (Verification is not required for personal use under the 100-user cap.)
-   - In **Data Access**, enable these scopes:
-     - `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly`
-     - `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly`
-     - `https://www.googleapis.com/auth/googlehealth.sleep.readonly`
+### 1. Google Cloud project
 
-2. **Local credentials** — put your client ID + secret in `.env`:
-   ```
-   CLIENT_ID=xxxxx.apps.googleusercontent.com
-   CLIENT_SECRET=GOCSPX-xxxxx
-   ```
+- Enable the API: <https://console.cloud.google.com/apis/library/health.googleapis.com>
+- Create an OAuth 2.0 **Web Server** client. Set redirect URI to `https://www.google.com`.
+- In **OAuth consent screen → Audience**, click **Publish app** so refresh tokens don't expire after 7 days. (Verification is not required for personal use under the 100-user cap.)
+- In **Data Access**, enable these scopes:
+  - `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly`
+  - `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly`
+  - `https://www.googleapis.com/auth/googlehealth.sleep.readonly`
 
-3. **Authenticate**
-   ```bash
-   ./auth-url.sh
-   ```
-   Browser opens → consent → you're redirected to `https://www.google.com/?code=…`. Paste that full URL back into the terminal. Tokens land in `.token`.
-   If the output says `refresh_token: (persistent)` you're good. `expires in 604800s` means your OAuth client is still in Testing mode — go publish it.
+### 2. Create `.env`
 
-4. **Keep the token alive** (optional but recommended) — install the cron job:
-   ```bash
-   crontab -e
-   # paste the line from crontab.txt
-   ```
-   This runs `refresh-token.sh` every 30 minutes; with a 60-minute access token lifetime, a single missed run still leaves a valid token.
+Create a file named `.env` in the project root containing your OAuth client credentials (you can copy these from the Cloud Console → APIs & Services → Credentials page):
+
+```
+CLIENT_ID=xxxxx.apps.googleusercontent.com
+CLIENT_SECRET=GOCSPX-xxxxx
+```
+
+Required variables:
+
+| Variable | Where it comes from |
+|---|---|
+| `CLIENT_ID` | OAuth 2.0 Client ID from the Cloud Console |
+| `CLIENT_SECRET` | Client secret for that same OAuth client |
+
+The `.env` file is gitignored. **Do not commit it.** Nothing else belongs in `.env` — `ACCESS_TOKEN` / `REFRESH_TOKEN` are managed automatically in a separate `.token` file (also gitignored, chmod 600).
+
+### 3. First run — get your tokens
+
+Run the OAuth login script:
+
+```bash
+./auth-url.sh
+```
+
+What happens:
+1. Your default browser opens to the Google consent screen.
+2. Sign in (as the Google account that owns the Fitbit Air) and approve the requested scopes.
+3. Google redirects to `https://www.google.com/?code=…` — that page will look empty/blank, that's expected.
+4. **Copy the full URL** from your browser's address bar and paste it into the terminal where the script is waiting. Press Enter.
+5. The script exchanges the code for tokens and writes them to `.token`.
+
+You should see output ending with:
+```
+Saved tokens to .token (chmod 600).
+  access_token expires in 3599s
+  refresh_token: (persistent)
+```
+
+- `refresh_token: (persistent)` → you're set; the refresh token won't expire on its own.
+- `refresh_token: expires in 604800s — app is in Testing mode` → your OAuth client isn't published yet. Go back to **OAuth consent screen → Audience** and click **Publish app**, then re-run `./auth-url.sh`.
+
+Smoke-test that the token actually works against the Health API:
+
+```bash
+source .token && curl -sS -H "Authorization: Bearer $ACCESS_TOKEN" \
+  https://health.googleapis.com/v4/users/me/pairedDevices
+```
+
+You should see your Fitbit Air listed.
+
+### 4. Install the cron job (keeps the access token valid)
+
+Access tokens expire after ~1 hour. `refresh-token.sh` uses the long-lived refresh token to mint a new access token. To run it automatically every 30 minutes:
+
+```bash
+crontab -e
+```
+
+Paste this line (also kept in `crontab.txt` for reference) and save:
+
+```
+*/30 * * * * /Users/dave/dev/fitbit-new/refresh-token.sh >> /Users/dave/dev/fitbit-new/refresh-token.log 2>&1
+```
+
+Verify it's installed:
+
+```bash
+crontab -l
+```
+
+Why `*/30`: tokens live 60 minutes, so refreshing every 30 means a single missed cron run still leaves a valid token. Output (success line or error JSON) goes to `refresh-token.log` (gitignored) so you can troubleshoot.
+
+**macOS gotcha:** the first time cron runs the script, macOS may prompt for Full Disk Access for `/usr/sbin/cron` (System Settings → Privacy & Security → Full Disk Access).
+
+The cron job is optional for one-off use — `fetch-health-data.sh` will also refresh the token on-demand if it sees it's about to expire. The cron job mainly matters if you want `ACCESS_TOKEN` to be valid for ad-hoc `curl` calls without thinking about it.
 
 ## Usage
 
