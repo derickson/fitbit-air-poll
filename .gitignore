@@ -1,0 +1,4 @@
+.env
+.token
+refresh-token.log
+data/

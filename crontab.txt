@@ -1,0 +1,10 @@
+# Refresh the Google Health API access token every 30 minutes.
+# Access tokens live ~3600s (1h); refreshing every 30m gives a comfortable
+# safety buffer (one missed run still leaves a valid token).
+# stdout/stderr goes to refresh-token.log in the project dir.
+#
+# Install with:  crontab -e   (paste the line below, save)
+# Verify with:   crontab -l
+# Remove with:   crontab -e   (delete the line)
+
+*/30 * * * * /Users/dave/dev/fitbit-new/refresh-token.sh >> /Users/dave/dev/fitbit-new/refresh-token.log 2>&1
