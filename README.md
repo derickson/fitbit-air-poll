@@ -9,7 +9,10 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 | File | Purpose |
 |---|---|
 | `auth-url.sh` | One-shot OAuth login. Opens the consent screen, accepts a pasted redirect URL, exchanges the code for tokens, writes them to `.token`. |
-| `refresh-token.sh` | Uses `REFRESH_TOKEN` to mint a fresh `ACCESS_TOKEN` (~1h lifetime). Designed for cron. |
+| `refresh-token-only.sh` | Uses `REFRESH_TOKEN` to mint a fresh `ACCESS_TOKEN` (~1h lifetime). Just the refresh, no side effects. |
+| `refresh-token.sh` | Cron entry point: runs `refresh-token-only.sh`, then the data-lag snapshot experiment. |
+| `snapshot-health-data.sh` | Data-lag experiment: snapshots yesterday+today into `data-experiment/<run-timestamp>/` so repeated pulls can be diffed for late-arriving data. |
+| `analyze_experiment_deltas.py` | Diffs consecutive snapshot runs: reports added/changed/removed points and availability-lag stats per data type. |
 | `fetch-health-data.sh` | Pulls a day's worth of heart-rate, steps, exercise, and sleep into `data/YYYY-MM-DD/*.json`. Auto-refreshes the access token if it's near expiry. |
 | `log-weight.sh` | Writes a weight measurement (kg or lb, optional note) timestamped "now". |
 | `log-food.sh` | Logs a food entry (name, kcal, meal type, optional protein/carbs/fat). |
@@ -17,7 +20,8 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 | `.env` | `CLIENT_ID` + `CLIENT_SECRET` (gitignored). |
 | `.token` | `ACCESS_TOKEN`, `REFRESH_TOKEN`, `ACCESS_TOKEN_EXPIRES_AT` (gitignored, chmod 600). |
 | `refresh-token.log` | Cron output (gitignored). |
-| `data/` | Daily ingest output. |
+| `data/` | Daily ingest output (gitignored). |
+| `data-experiment/` | Snapshot-experiment output, one folder per run (gitignored). |
 
 ## One-time setup
 
@@ -97,8 +101,10 @@ crontab -e
 Paste this line (also kept in `crontab.txt` for reference) and save:
 
 ```
-*/30 * * * * /Users/dave/dev/fitbit-air-poll/refresh-token.sh >> /Users/dave/dev/fitbit-air-poll/refresh-token.log 2>&1
+*/30 * * * * /home/dave/dev/fitbit-air-poll/refresh-token.sh >> /home/dave/dev/fitbit-air-poll/refresh-token.log 2>&1
 ```
+
+Note `refresh-token.sh` also runs the data-lag snapshot experiment after each refresh (see below). If you only want the token kept alive, point the cron line at `refresh-token-only.sh` instead.
 
 Verify it's installed:
 
@@ -151,6 +157,19 @@ Log a food entry:
 
 Meal types: `breakfast`, `lunch`, `dinner`, `snack`, `anytime` (default), plus the API's `before_*`/`after_*` variants. Both scripts POST to `users/me/dataTypes/{weight|nutrition-log}/dataPoints` and need the write scopes from setup step 1. Note the writeonly scopes can only edit/delete entries this app created — not ones logged from the Fitbit app.
 
+A successful write returns the created data point, including its full `name` (`users/{id}/dataTypes/{type}/dataPoints/{id}`) — keep it if you want to `patch` or delete the entry later.
+
+## Data-lag experiment
+
+The device→phone→Google Health sync chain means a pull can see incomplete data that's revised later. To measure that:
+
+- `snapshot-health-data.sh` (run by `refresh-token.sh` every 30 min via cron) snapshots yesterday+today into `data-experiment/<run-start-timestamp>/`.
+- `analyze_experiment_deltas.py` diffs consecutive runs and reports, per civil day and data type, ADDED / CHANGED / REMOVED points plus availability-lag percentiles (device sample time → first snapshot containing the point).
+
+```bash
+./analyze_experiment_deltas.py [--dir data-experiment] [--verbose]
+```
+
 ## API filter quirks (the part that took the longest)
 
 The filter field path differs per data-type "kind":
@@ -166,6 +185,7 @@ Also: kebab-case in URL paths (`heart-rate`), snake_case in filter expressions (
 
 ## Gotchas
 
+- **`dataSource` docs are wrong for writes**: the reference docs list `recordingMethod: ACTIVELY_RECORDED` and an `application.name` field, but the live API rejects both (`INVALID_ARGUMENT`). Observed-valid `recordingMethod` values: `MANUAL` (what the log scripts use), `DERIVED`, `PASSIVELY_MEASURED`. The `application` and `platform` fields are server-populated from your OAuth client (`platform: GOOGLE_WEB_API`) — don't send them.
 - **OAuth scope bleed**: do **not** pass `include_granted_scopes=true` on the auth URL. If your OAuth client has other Google scopes registered (e.g. Nest / `sdm_service`), the resulting token will be rejected by the Health API with `DISALLOWED_OAUTH_SCOPES`.
 - **Rate limits**: 300 req/min per user, 120k req/min and 86.4M req/day per project. Daily ingest is nowhere near these.
 - **Page-size caps**: `exercise` and `sleep` cap at 25/page (the script paginates). `heart-rate` and `steps` allow up to 10,000.

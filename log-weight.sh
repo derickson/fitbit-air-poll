@@ -22,7 +22,7 @@ if [[ -f .token ]]; then set -a; source .token; set +a; fi
 NOW=$(date +%s)
 if [[ -n "${ACCESS_TOKEN_EXPIRES_AT:-}" && "$ACCESS_TOKEN_EXPIRES_AT" -lt $((NOW + 120)) ]]; then
   echo "Access token near expiry — refreshing…"
-  ./refresh-token.sh >/dev/null
+  ./refresh-token-only.sh >/dev/null
   set -a; source .token; set +a
 fi
 
