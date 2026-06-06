@@ -44,3 +44,7 @@ os.chmod(p, 0o600)
 ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 print(f"[{ts}] refreshed; new access_token expires in {resp.get('expires_in')}s")
 PY
+
+# Data-lag experiment: snapshot the past two days after every successful
+# refresh. A snapshot failure must not mask the successful token refresh.
+./snapshot-health-data.sh || echo "[refresh-token] snapshot-health-data.sh failed (exit $?)" >&2

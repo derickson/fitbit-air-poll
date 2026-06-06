@@ -27,6 +27,9 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 - In **Data Access**, enable these scopes:
   - `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly`
   - `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly`
+  - `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.writeonly` (write weight/body measurements)
+  - `https://www.googleapis.com/auth/googlehealth.nutrition.readonly` (read food logs)
+  - `https://www.googleapis.com/auth/googlehealth.nutrition.writeonly` (log food)
   - `https://www.googleapis.com/auth/googlehealth.sleep.readonly`
 
 ### 2. Create `.env`

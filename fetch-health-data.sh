@@ -31,7 +31,9 @@ if [[ -n "${ACCESS_TOKEN_EXPIRES_AT:-}" && "$ACCESS_TOKEN_EXPIRES_AT" -lt $((NOW
   set -a; source .token; set +a
 fi
 
-OUT_DIR="data/$DATE"
+# OUT_BASE override lets snapshot-health-data.sh redirect output into
+# timestamped experiment folders; default remains data/.
+OUT_DIR="${OUT_BASE:-data}/$DATE"
 mkdir -p "$OUT_DIR"
 
 BASE="https://health.googleapis.com/v4/users/me/dataTypes"
