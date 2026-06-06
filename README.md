@@ -11,6 +11,8 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 | `auth-url.sh` | One-shot OAuth login. Opens the consent screen, accepts a pasted redirect URL, exchanges the code for tokens, writes them to `.token`. |
 | `refresh-token.sh` | Uses `REFRESH_TOKEN` to mint a fresh `ACCESS_TOKEN` (~1h lifetime). Designed for cron. |
 | `fetch-health-data.sh` | Pulls a day's worth of heart-rate, steps, exercise, and sleep into `data/YYYY-MM-DD/*.json`. Auto-refreshes the access token if it's near expiry. |
+| `log-weight.sh` | Writes a weight measurement (kg or lb, optional note) timestamped "now". |
+| `log-food.sh` | Logs a food entry (name, kcal, meal type, optional protein/carbs/fat). |
 | `crontab.txt` | The `crontab -e` line for keeping the access token alive (`*/30`). |
 | `.env` | `CLIENT_ID` + `CLIENT_SECRET` (gitignored). |
 | `.token` | `ACCESS_TOKEN`, `REFRESH_TOKEN`, `ACCESS_TOKEN_EXPIRES_AT` (gitignored, chmod 600). |
@@ -132,6 +134,22 @@ data/2026-06-04/
 ```
 
 Each file is `{ "dataPoints": [...], "pageCount": N }`. Pagination is handled transparently.
+
+### Writing data
+
+Log a weight measurement (timestamped "now"):
+```bash
+./log-weight.sh 81.6              # kg by default
+./log-weight.sh 180 lb "after morning run"
+```
+
+Log a food entry:
+```bash
+./log-food.sh "Apple" 95 snack
+./log-food.sh "Chicken burrito" 650 lunch --protein 35 --carbs 70 --fat 22
+```
+
+Meal types: `breakfast`, `lunch`, `dinner`, `snack`, `anytime` (default), plus the API's `before_*`/`after_*` variants. Both scripts POST to `users/me/dataTypes/{weight|nutrition-log}/dataPoints` and need the write scopes from setup step 1. Note the writeonly scopes can only edit/delete entries this app created — not ones logged from the Fitbit app.
 
 ## API filter quirks (the part that took the longest)
 
