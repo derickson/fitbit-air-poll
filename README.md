@@ -14,6 +14,7 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 | `snapshot-health-data.sh` | Data-lag experiment: snapshots yesterday+today into `data-experiment/<run-timestamp>/` so repeated pulls can be diffed for late-arriving data. |
 | `analyze_experiment_deltas.py` | Diffs consecutive snapshot runs: reports added/changed/removed points and availability-lag stats per data type. |
 | `fetch-health-data.sh` | Pulls a day's worth of heart-rate, steps, exercise, and sleep into `data/YYYY-MM-DD/*.json`. Auto-refreshes the access token if it's near expiry. |
+| `get-recent-health-info.sh` | Live markdown summary to stdout: today's steps, last 7 days of exercise sessions, latest weight reading. |
 | `log-weight.sh` | Writes a weight measurement (kg or lb, optional note) timestamped "now". |
 | `log-food.sh` | Logs a food entry (name, kcal, meal type, optional protein/carbs/fat). |
 | `crontab.txt` | The `crontab -e` line for keeping the access token alive (`*/30`). |
@@ -140,6 +141,12 @@ data/2026-06-04/
 ```
 
 Each file is `{ "dataPoints": [...], "pageCount": N }`. Pagination is handled transparently.
+
+Get a quick live summary (markdown on stdout, progress on stderr):
+```bash
+./get-recent-health-info.sh
+```
+Shows today's steps (device-civil day — the fetch window is widened and post-filtered because the device timezone can differ from this machine's), the last 7 days of exercise sessions, and the most recent weight reading from the last 90 days.
 
 ### Writing data
 
