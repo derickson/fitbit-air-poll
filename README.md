@@ -160,9 +160,12 @@ Log a food entry:
 ```bash
 ./log-food.sh "Apple" 95 snack
 ./log-food.sh "Chicken burrito" 650 lunch --protein 35 --carbs 70 --fat 22
+./log-food.sh "Pancakes" 520 breakfast --date 2026-06-04    # backfill a past day
 ```
 
-Meal types: `breakfast`, `lunch`, `dinner`, `snack`, `anytime` (default), plus the API's `before_*`/`after_*` variants. Both scripts POST to `users/me/dataTypes/{weight|nutrition-log}/dataPoints` and need the write scopes from setup step 1. Note the writeonly scopes can only edit/delete entries this app created — not ones logged from the Fitbit app.
+Meal types: `breakfast`, `lunch`, `dinner`, `snack`, `anytime` (default), plus the API's `before_*`/`after_*` variants. Named meals are back-stamped to a typical time of day (breakfast 08:00, lunch 12:30, dinner 18:30, `before_*` 30 min earlier, `after_dinner` 20:30; 15-minute intervals), so logging after the fact lands at a sensible time; `--date YYYY-MM-DD` applies them to a past day for backfilling (snack/anytime backfills land at 12:00; without `--date` they log at "now"). Both scripts POST to `users/me/dataTypes/{weight|nutrition-log}/dataPoints` and need the write scopes from setup step 1. Note the writeonly scopes can only edit/delete entries this app created — not ones logged from the Fitbit app.
+
+See `AGENT_LOGGING_README.md` for a self-contained guide to the write API (auth, schemas, docs-vs-reality gotchas) aimed at AI agents / external tooling.
 
 A successful write returns the created data point, including its full `name` (`users/{id}/dataTypes/{type}/dataPoints/{id}`) — keep it if you want to `patch` or delete the entry later.
 
