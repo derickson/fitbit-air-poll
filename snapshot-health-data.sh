@@ -5,9 +5,10 @@ cd "$(dirname "$0")"
 
 # Data-lag experiment: snapshot the past two civil days (yesterday + today)
 # into data-experiment/<run-start-timestamp>/, one subfolder per run.
-# Repeated runs (every 30m via refresh-token.sh + cron) can later be diffed
-# to detect late-arriving or revised data — the device→phone→Google Health
-# sync chain means a pull may see incomplete data that is overwritten later.
+# Repeated runs (manual — no longer part of the fitbit-poll.sh cron cycle)
+# can later be diffed to detect late-arriving or revised data — the
+# device→phone→Google Health sync chain means a pull may see incomplete
+# data that is overwritten later.
 
 read -r RUN_EPOCH RUN_TS RUN_ISO <<<"$(python3 -c "
 import time

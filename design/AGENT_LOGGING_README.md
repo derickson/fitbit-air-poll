@@ -33,9 +33,9 @@ auth, token refresh, units, and timestamps):
     `client_id`, `client_secret`, `refresh_token`, `grant_type=refresh_token`.
     Response has `access_token` + `expires_in`. The refresh token normally
     does NOT rotate, but persist `refresh_token` from the response if present.
-- A cron job also refreshes every 30 min via `refresh-token.sh` (which
-  additionally runs a data-snapshot experiment — do not use that one for
-  on-demand refresh; use `refresh-token-only.sh`).
+- A cron job also refreshes every 30 min via `fitbit-poll.sh` (which
+  additionally fetches recent data and ingests it into Elasticsearch — do
+  not use that one for on-demand refresh; use `refresh-token-only.sh`).
 
 ### Required OAuth scopes (already granted on the current refresh token)
 

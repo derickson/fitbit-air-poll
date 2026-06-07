@@ -3,8 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Token refresh ONLY — no data-lag snapshot side effect.
-# refresh-token.sh wraps this and adds the snapshot experiment.
+# Token refresh ONLY — no data-fetch side effects.
+# fitbit-poll.sh wraps this and adds the Elasticsearch ingest.
 
 if [[ -f .env ]];   then set -a; source .env;   set +a; fi
 if [[ -f .token ]]; then set -a; source .token; set +a; fi

@@ -10,17 +10,19 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 |---|---|
 | `auth-url.sh` | One-shot OAuth login. Opens the consent screen, accepts a pasted redirect URL, exchanges the code for tokens, writes them to `.token`. |
 | `refresh-token-only.sh` | Uses `REFRESH_TOKEN` to mint a fresh `ACCESS_TOKEN` (~1h lifetime). Just the refresh, no side effects. |
-| `refresh-token.sh` | Cron entry point: runs `refresh-token-only.sh`, then the data-lag snapshot experiment. |
-| `snapshot-health-data.sh` | Data-lag experiment: snapshots yesterday+today into `data-experiment/<run-timestamp>/` so repeated pulls can be diffed for late-arriving data. |
+| `fitbit-poll.sh` | Cron entry point: runs `refresh-token-only.sh`, then fetches yesterday+today and ingests it into Elasticsearch. |
+| `setup-elasticsearch.sh` | One-time Elasticsearch bootstrap: `fitbit-metrics` TSDS template + `fitbit-sleep` / `fitbit-activities` indices (see `design/ELASTICSEARCH-DESIGN.md`). |
+| `ingest-to-elasticsearch.py` | Transforms a snapshot of fetched data and bulk-writes it to Elasticsearch; idempotent (`--run DIR`, `--all-runs`, `--dry-run`). |
+| `snapshot-health-data.sh` | Data-lag experiment (manual; no longer in the cron cycle): snapshots yesterday+today into `data-experiment/<run-timestamp>/` so repeated pulls can be diffed for late-arriving data. |
 | `analyze_experiment_deltas.py` | Diffs consecutive snapshot runs: reports added/changed/removed points and availability-lag stats per data type. |
 | `fetch-health-data.sh` | Pulls a day's worth of heart-rate, steps, exercise, and sleep into `data/YYYY-MM-DD/*.json`. Auto-refreshes the access token if it's near expiry. |
 | `get-recent-health-info.sh` | Live markdown summary to stdout: today's steps, last 7 days of exercise sessions, latest weight reading. |
 | `log-weight.sh` | Writes a weight measurement (kg or lb, optional note) timestamped "now". |
 | `log-food.sh` | Logs a food entry (name, kcal, meal type, optional protein/carbs/fat). |
-| `crontab.txt` | The `crontab -e` line for keeping the access token alive (`*/30`). |
-| `.env` | `CLIENT_ID` + `CLIENT_SECRET` (gitignored). |
+| `crontab.txt` | The `crontab -e` line for the 30-minute poll cycle (`*/30`). |
+| `.env` | `CLIENT_ID` + `CLIENT_SECRET`, `ELASTICSEARCH_URL` + `ELASTICSEARCH_API_KEY`, `FITBIT_USER_ID` (gitignored). |
 | `.token` | `ACCESS_TOKEN`, `REFRESH_TOKEN`, `ACCESS_TOKEN_EXPIRES_AT` (gitignored, chmod 600). |
-| `refresh-token.log` | Cron output (gitignored). |
+| `fitbit-poll.log` | Cron output (gitignored). |
 | `data/` | Daily ingest output (gitignored). |
 | `data-experiment/` | Snapshot-experiment output, one folder per run (gitignored). |
 
@@ -54,8 +56,11 @@ Required variables:
 |---|---|
 | `CLIENT_ID` | OAuth 2.0 Client ID from the Cloud Console |
 | `CLIENT_SECRET` | Client secret for that same OAuth client |
+| `ELASTICSEARCH_URL` | Your Elasticsearch endpoint (for the ingest step) |
+| `ELASTICSEARCH_API_KEY` | API key for that cluster |
+| `FITBIT_USER_ID` | Google Health user id — the number in any dataPoint `name` (`users/<id>/…`); used as the TSDS `user_id` dimension |
 
-The `.env` file is gitignored. **Do not commit it.** Nothing else belongs in `.env` — `ACCESS_TOKEN` / `REFRESH_TOKEN` are managed automatically in a separate `.token` file (also gitignored, chmod 600).
+The `.env` file is gitignored. **Do not commit it.** Tokens do not belong in `.env` — `ACCESS_TOKEN` / `REFRESH_TOKEN` are managed automatically in a separate `.token` file (also gitignored, chmod 600).
 
 ### 3. First run — get your tokens
 
@@ -91,9 +96,9 @@ source .token && curl -sS -H "Authorization: Bearer $ACCESS_TOKEN" \
 
 You should see your Fitbit Air listed.
 
-### 4. Install the cron job (keeps the access token valid)
+### 4. Install the cron job (the poll cycle)
 
-Access tokens expire after ~1 hour. `refresh-token.sh` uses the long-lived refresh token to mint a new access token. To run it automatically every 30 minutes:
+Access tokens expire after ~1 hour. `fitbit-poll.sh` uses the long-lived refresh token to mint a new access token, then fetches yesterday+today and ingests the data into Elasticsearch (idempotent — see `design/ELASTICSEARCH-DESIGN.md`). Bootstrap the indices once with `./setup-elasticsearch.sh`, then run the cycle automatically every 30 minutes:
 
 ```bash
 crontab -e
@@ -102,10 +107,10 @@ crontab -e
 Paste this line (also kept in `crontab.txt` for reference) and save:
 
 ```
-*/30 * * * * /home/dave/dev/fitbit-air-poll/refresh-token.sh >> /home/dave/dev/fitbit-air-poll/refresh-token.log 2>&1
+*/30 * * * * /home/dave/dev/fitbit-air-poll/fitbit-poll.sh >> /home/dave/dev/fitbit-air-poll/fitbit-poll.log 2>&1
 ```
 
-Note `refresh-token.sh` also runs the data-lag snapshot experiment after each refresh (see below). If you only want the token kept alive, point the cron line at `refresh-token-only.sh` instead.
+If you only want the token kept alive, point the cron line at `refresh-token-only.sh` instead.
 
 Verify it's installed:
 
@@ -113,7 +118,7 @@ Verify it's installed:
 crontab -l
 ```
 
-Why `*/30`: tokens live 60 minutes, so refreshing every 30 means a single missed cron run still leaves a valid token. Output (success line or error JSON) goes to `refresh-token.log` (gitignored) so you can troubleshoot.
+Why `*/30`: tokens live 60 minutes, so refreshing every 30 means a single missed cron run still leaves a valid token. Output (success line or error JSON) goes to `fitbit-poll.log` (gitignored) so you can troubleshoot.
 
 **macOS gotcha:** the first time cron runs the script, macOS may prompt for Full Disk Access for `/usr/sbin/cron` (System Settings → Privacy & Security → Full Disk Access).
 
@@ -165,15 +170,25 @@ Log a food entry:
 
 Meal types: `breakfast`, `lunch`, `dinner`, `snack`, `anytime` (default), plus the API's `before_*`/`after_*` variants. Named meals are back-stamped to a typical time of day (breakfast 08:00, lunch 12:30, dinner 18:30, `before_*` 30 min earlier, `after_dinner` 20:30; 15-minute intervals), so logging after the fact lands at a sensible time; `--date YYYY-MM-DD` applies them to a past day for backfilling (snack/anytime backfills land at 12:00; without `--date` they log at "now"). Both scripts POST to `users/me/dataTypes/{weight|nutrition-log}/dataPoints` and need the write scopes from setup step 1. Note the writeonly scopes can only edit/delete entries this app created — not ones logged from the Fitbit app.
 
-See `AGENT_LOGGING_README.md` for a self-contained guide to the write API (auth, schemas, docs-vs-reality gotchas) aimed at AI agents / external tooling.
+See `design/AGENT_LOGGING_README.md` for a self-contained guide to the write API (auth, schemas, docs-vs-reality gotchas) aimed at AI agents / external tooling.
 
 A successful write returns the created data point, including its full `name` (`users/{id}/dataTypes/{type}/dataPoints/{id}`) — keep it if you want to `patch` or delete the entry later.
+
+## Elasticsearch ingest
+
+Each poll cycle pushes the fetched window into Elasticsearch: heart-rate samples and step buckets into the `fitbit-metrics` TSDS (time-series data stream), sleep sessions into `fitbit-sleep`, and exercise sessions into `fitbit-activities`. Writes are idempotent — re-pulled points dedup via TSDS dimension+timestamp identity, and sleep/exercise revisions upsert by their server dataPoint id. Full design, mappings, and the dedup/revision rationale: `design/ELASTICSEARCH-DESIGN.md`.
+
+```bash
+./setup-elasticsearch.sh                  # one-time bootstrap
+./ingest-to-elasticsearch.py --dry-run    # ingest newest data-experiment run (default)
+./ingest-to-elasticsearch.py --all-runs   # backfill every snapshot run
+```
 
 ## Data-lag experiment
 
 The device→phone→Google Health sync chain means a pull can see incomplete data that's revised later. To measure that:
 
-- `snapshot-health-data.sh` (run by `refresh-token.sh` every 30 min via cron) snapshots yesterday+today into `data-experiment/<run-start-timestamp>/`.
+- `snapshot-health-data.sh` (manual; formerly part of the cron cycle) snapshots yesterday+today into `data-experiment/<run-start-timestamp>/`.
 - `analyze_experiment_deltas.py` diffs consecutive runs and reports, per civil day and data type, ADDED / CHANGED / REMOVED points plus availability-lag percentiles (device sample time → first snapshot containing the point).
 
 ```bash

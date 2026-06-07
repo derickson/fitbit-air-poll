@@ -1,5 +1,5 @@
 .env
 .token
-refresh-token.log
+fitbit-poll.log
 data/
 data-experiment/

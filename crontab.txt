@@ -1,10 +1,11 @@
-# Refresh the Google Health API access token every 30 minutes.
+# Fitbit poll: refresh the Google Health API access token, fetch the last
+# two days of data, and ingest it into Elasticsearch — every 30 minutes.
 # Access tokens live ~3600s (1h); refreshing every 30m gives a comfortable
 # safety buffer (one missed run still leaves a valid token).
-# stdout/stderr goes to refresh-token.log in the project dir.
+# stdout/stderr goes to fitbit-poll.log in the project dir.
 #
 # Install with:  crontab -e   (paste the line below, save)
 # Verify with:   crontab -l
 # Remove with:   crontab -e   (delete the line)
 
-*/30 * * * * /home/dave/dev/fitbit-air-poll/refresh-token.sh >> /home/dave/dev/fitbit-air-poll/refresh-token.log 2>&1
+*/30 * * * * /home/dave/dev/fitbit-air-poll/fitbit-poll.sh >> /home/dave/dev/fitbit-air-poll/fitbit-poll.log 2>&1
