@@ -3,3 +3,4 @@
 fitbit-poll.log
 data/
 data-experiment/
+__pycache__/

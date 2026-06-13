@@ -77,30 +77,30 @@ RESPONSE=$(curl -sS -X POST https://oauth2.googleapis.com/token \
 
 # Parse + persist with python (no jq dependency).
 python3 - "$RESPONSE" <<'PY'
-import json, os, sys, time, pathlib
+import json, sys, time
+import token_store
 
 resp = json.loads(sys.argv[1])
 if "error" in resp:
     sys.exit(f"Token exchange failed: {json.dumps(resp, indent=2)}")
 
-access  = resp["access_token"]
-refresh = resp.get("refresh_token", "")
-expires = int(time.time()) + int(resp.get("expires_in", 3600))
-rt_exp  = resp.get("refresh_token_expires_in")  # present in Testing mode (~7d)
+now = int(time.time())
+# is_new_grant=True: a full authorization resets the 7-day clock and stamps
+# AUTH_GRANTED_AT / REFRESH_TOKEN_EXPIRES_AT (from refresh_token_expires_in).
+fields = token_store.apply_token_response(
+    resp, now=now, prior=token_store.read_token(), is_new_grant=True
+)
+token_store.write_token(fields)
 
-lines = [f"ACCESS_TOKEN={access}"]
-if refresh:
-    lines.append(f"REFRESH_TOKEN={refresh}")
-lines.append(f"ACCESS_TOKEN_EXPIRES_AT={expires}")
-
-token_path = pathlib.Path(".token")
-token_path.write_text("\n".join(lines) + "\n")
-os.chmod(token_path, 0o600)
-
+rt_exp = resp.get("refresh_token_expires_in")  # present in Testing mode (~7d)
 print("Saved tokens to .token (chmod 600).")
 print(f"  access_token expires in {resp.get('expires_in')}s")
-if refresh:
-    print(f"  refresh_token: {'(persistent)' if rt_exp is None else f'expires in {rt_exp}s — app is in Testing mode'}")
+if fields.get("REFRESH_TOKEN"):
+    if rt_exp is None:
+        print("  refresh_token: (persistent — app appears to be In production)")
+    else:
+        days = int(rt_exp) / 86400
+        print(f"  refresh_token expires in {rt_exp}s (~{days:.1f}d) — app is in Testing mode")
 else:
     print("  no refresh_token returned (re-run with prompt=consent if you need one)")
 PY

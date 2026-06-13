@@ -20,30 +20,27 @@ RESPONSE=$(curl -sS -X POST https://oauth2.googleapis.com/token \
   --data-urlencode "refresh_token=$REFRESH_TOKEN" \
   --data-urlencode "grant_type=refresh_token")
 
-python3 - "$RESPONSE" "$REFRESH_TOKEN" <<'PY'
-import json, os, sys, time, pathlib
+python3 - "$RESPONSE" <<'PY'
+import json, sys, time
+import token_store
 
 resp = json.loads(sys.argv[1])
-current_refresh = sys.argv[2]
 
 if "error" in resp:
     sys.stderr.write(f"[refresh-token] FAILED: {json.dumps(resp)}\n")
     sys.exit(1)
 
-access  = resp["access_token"]
-expires = int(time.time()) + int(resp.get("expires_in", 3600))
-# Google usually does NOT rotate the refresh token, but honor it if it does.
-refresh = resp.get("refresh_token", current_refresh)
-
-lines = [
-    f"ACCESS_TOKEN={access}",
-    f"REFRESH_TOKEN={refresh}",
-    f"ACCESS_TOKEN_EXPIRES_AT={expires}",
-]
-p = pathlib.Path(".token")
-p.write_text("\n".join(lines) + "\n")
-os.chmod(p, 0o600)
+now = int(time.time())
+# is_new_grant=False: a refresh must PRESERVE REFRESH_TOKEN_EXPIRES_AT /
+# AUTH_GRANTED_AT — only a full reauthorization resets the 7-day clock.
+fields = token_store.apply_token_response(
+    resp, now=now, prior=token_store.read_token(), is_new_grant=False
+)
+token_store.write_token(fields)
 
 ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-print(f"[{ts}] refreshed; new access_token expires in {resp.get('expires_in')}s")
+rt_exp = fields.get("REFRESH_TOKEN_EXPIRES_AT")
+days_left = (int(rt_exp) - now) / 86400 if rt_exp else None
+tail = f"; refresh token expires in {days_left:.1f}d" if days_left is not None else ""
+print(f"[{ts}] refreshed; new access_token expires in {resp.get('expires_in')}s{tail}")
 PY

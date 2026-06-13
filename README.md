@@ -8,8 +8,11 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 
 | File | Purpose |
 |---|---|
-| `auth-url.sh` | One-shot OAuth login. Opens the consent screen, accepts a pasted redirect URL, exchanges the code for tokens, writes them to `.token`. |
-| `refresh-token-only.sh` | Uses `REFRESH_TOKEN` to mint a fresh `ACCESS_TOKEN` (~1h lifetime). Just the refresh, no side effects. |
+| `auth-url.sh` | One-shot OAuth login (terminal). Opens the consent screen, accepts a pasted redirect URL, exchanges the code for tokens, writes them to `.token`. |
+| `reauth-server.py` | Browser reauthorization UI + backend (`127.0.0.1:8788`, base path `/health-reauth/`). nginx proxies it at `lab.azathought.com/health-reauth/` behind the vouch-lab gate; the health dashboard links to it. See [Weekly reauthorization](#weekly-reauthorization-the-dashboard-ui). |
+| `token_store.py` | Shared `.token` read/write helper used by `auth-url.sh`, `refresh-token-only.sh`, and `reauth-server.py`. Owns the field set and the rule that refreshes preserve the 7-day refresh-token clock. |
+| `systemd/fitbit-reauth.service` | User unit that runs `reauth-server.py`. |
+| `refresh-token-only.sh` | Uses `REFRESH_TOKEN` to mint a fresh `ACCESS_TOKEN` (~1h lifetime). Just the refresh, no side effects. Preserves `REFRESH_TOKEN_EXPIRES_AT` / `AUTH_GRANTED_AT`. |
 | `fitbit-poll.sh` | Cron entry point: runs `refresh-token-only.sh`, then fetches yesterday+today and ingests it into Elasticsearch. |
 | `setup-elasticsearch.sh` | One-time Elasticsearch bootstrap: `fitbit-metrics` TSDS template + `fitbit-sleep` / `fitbit-activities` indices (see `design/ELASTICSEARCH-DESIGN.md`). |
 | `ingest-to-elasticsearch.py` | Transforms a snapshot of fetched data and bulk-writes it to Elasticsearch; idempotent (`--run DIR`, `--all-runs`, `--dry-run`). |
@@ -21,7 +24,7 @@ Fitbit Air is a Google device and is **not** accessible through the legacy Fitbi
 | `log-food.sh` | Logs a food entry (name, kcal, meal type, optional protein/carbs/fat). |
 | `crontab.txt` | The `crontab -e` line for the 30-minute poll cycle (`*/30`). |
 | `.env` | `CLIENT_ID` + `CLIENT_SECRET`, `ELASTICSEARCH_URL` + `ELASTICSEARCH_API_KEY`, `FITBIT_USER_ID` (gitignored). |
-| `.token` | `ACCESS_TOKEN`, `REFRESH_TOKEN`, `ACCESS_TOKEN_EXPIRES_AT` (gitignored, chmod 600). |
+| `.token` | `ACCESS_TOKEN`, `REFRESH_TOKEN`, `ACCESS_TOKEN_EXPIRES_AT`, `REFRESH_TOKEN_EXPIRES_AT`, `AUTH_GRANTED_AT` (gitignored, chmod 600). |
 | `fitbit-poll.log` | Cron output (gitignored). |
 | `data/` | Daily ingest output (gitignored). |
 | `data-experiment/` | Snapshot-experiment output, one folder per run (gitignored). |
@@ -123,6 +126,66 @@ Why `*/30`: tokens live 60 minutes, so refreshing every 30 means a single missed
 **macOS gotcha:** the first time cron runs the script, macOS may prompt for Full Disk Access for `/usr/sbin/cron` (System Settings → Privacy & Security → Full Disk Access).
 
 The cron job is optional for one-off use — `fetch-health-data.sh` will also refresh the token on-demand if it sees it's about to expire. The cron job mainly matters if you want `ACCESS_TOKEN` to be valid for ad-hoc `curl` calls without thinking about it.
+
+## Weekly reauthorization (the dashboard UI)
+
+While the OAuth app stays in **Testing** mode, Google expires the *refresh*
+token ~7 days after each authorization — so once a week the whole poll cycle
+would die with `invalid_grant` until you re-authorize. (Publishing the app to
+production removes this; if the restricted `googlehealth.*` scopes make that
+impractical, the weekly reauth below is the fallback.)
+
+Two pieces make the weekly reauth a one-click Saturday chore instead of a
+terminal ritual:
+
+- **Countdown badge** on the health dashboard (`lab.azathought.com/health/`):
+  the static generator reads `REFRESH_TOKEN_EXPIRES_AT` from `.token` and shows
+  "🔑 reauth in N days", green → amber → red as it approaches zero. It links to
+  the reauth UI. (Generator: `staticdash-azathought/app_health/bin/app.py`.)
+- **Reauth UI** at `lab.azathought.com/health-reauth/`, served by
+  `reauth-server.py`: click **Reauthorize**, approve in Google, and you're
+  redirected straight back — no copy-paste. The exchange writes a fresh `.token`
+  (resetting the 7-day clock), and the next dashboard regen shows a full
+  countdown again.
+
+### Install the reauth server
+
+1. **systemd user service** (runs the server on `127.0.0.1:8788`):
+
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   ln -sf "$PWD/systemd/fitbit-reauth.service" ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   systemctl --user enable --now fitbit-reauth.service
+   loginctl enable-linger "$USER"   # so it runs without an active login
+   ```
+
+   Check it: `curl -s localhost:8788/health-reauth/status`.
+
+2. **nginx** — add the `location ^~ /health-reauth/` proxy block to the
+   `lab.azathought.com` server (already done in
+   `~/dev/nginx-working-area/nginx.conf`; mirrors the `/aitube/` block), then
+   deploy:
+
+   ```bash
+   sudo cp ~/dev/nginx-working-area/nginx.conf /etc/nginx/nginx.conf
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+3. **GCP console** — add the redirect URI so Google will bounce back to the
+   dashboard. APIs & Services → Credentials → your OAuth **Web** client → 
+   **Authorized redirect URIs** → Add:
+
+   ```
+   https://lab.azathought.com/health-reauth/callback
+   ```
+
+   (Keep the existing `https://www.google.com` URI — `auth-url.sh` still uses
+   it as the terminal fallback.) Each Google account that reauthorizes must also
+   be a **test user** on the OAuth consent screen.
+
+The terminal flow (`./auth-url.sh`) still works as a fallback and writes the
+same expiry fields.
 
 ## Usage
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=Google Health OAuth reauthorization UI (fitbit-air-poll)
+Documentation=file:///home/dave/dev/fitbit-air-poll/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/dave/dev/fitbit-air-poll
+ExecStart=/usr/bin/python3 /home/dave/dev/fitbit-air-poll/reauth-server.py
+Restart=on-failure
+RestartSec=5
+# Bound to 127.0.0.1 only; nginx + vouch-lab gate it at lab.azathought.com.
+
+[Install]
+WantedBy=default.target
