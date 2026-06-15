@@ -57,8 +57,11 @@ def parse_rfc3339(s):
 
 
 def seconds(s):
-    """'-14400s' / '720s' → int, passing through missing values."""
-    return int(s[:-1]) if isinstance(s, str) and s.endswith("s") else s
+    """'-14400s' / '720s' / '1957.167s' → int, passing through missing values.
+
+    The API emits protobuf Duration strings, which may carry fractional
+    seconds; round to whole seconds to match the integer ES mappings."""
+    return round(float(s[:-1])) if isinstance(s, str) and s.endswith("s") else s
 
 
 def opt_int(v):
